@@ -1,15 +1,18 @@
 using AuthPracticeAPI.Data;
 using AuthPracticeAPI.Models;
+using AuthPracticeAPI.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Scalar.AspNetCore;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// -----------------------------
 // Configure JWT
-
+// -----------------------------
 var jwtSettings = builder.Configuration.GetSection("Jwt");
 
 builder.Services.AddAuthentication(options =>
@@ -28,37 +31,73 @@ builder.Services.AddAuthentication(options =>
         ValidIssuer = jwtSettings["Issuer"],
         ValidAudience = jwtSettings["Audience"],
         IssuerSigningKey = new SymmetricSecurityKey(
-            Encoding.UTF8.GetBytes(jwtSettings["Key"]))
+            Encoding.UTF8.GetBytes(jwtSettings["Key"] ?? string.Empty))
     };
 });
 
-
-// Configure Db
+// -----------------------------
+// Configure EF Core with SQL Server
+// -----------------------------
 builder.Services.AddDbContext<AppDbContext>(options =>
-options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// Configure Identity 
-builder.Services.AddIdentity<ApplicationUser, IdentityRole>()
-    .AddEntityFrameworkStores<AppDbContext>()
-    .AddDefaultTokenProviders();
+// -----------------------------
+// Configure Identity
+// -----------------------------
+builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
+{
+    options.Password.RequireDigit = true;
+    options.Password.RequireLowercase = true;
+    options.Password.RequireUppercase = true;
+    options.Password.RequireNonAlphanumeric = false;
+    options.Password.RequiredLength = 6;
+})
+.AddEntityFrameworkStores<AppDbContext>()
+.AddDefaultTokenProviders();
 
+// -----------------------------
+// Configure External Authentication
+// -----------------------------
+builder.Services.AddAuthentication()
+    .AddGoogle(options =>
+    {
+        options.ClientId = builder.Configuration["Authentication:Google:ClientId"]!;
+        options.ClientSecret = builder.Configuration["Authentication:Google:ClientSecret"]!;
+    })
+    .AddFacebook(options =>
+    {
+        options.AppId = builder.Configuration["Authentication:Facebook:AppId"]!;
+        options.AppSecret = builder.Configuration["Authentication:Facebook:AppSecret"]!;
+    })
+    .AddGitHub(options =>
+    {
+        options.ClientId = builder.Configuration["Authentication:GitHub:ClientId"]!;
+        options.ClientSecret = builder.Configuration["Authentication:GitHub:ClientSecret"]!;
+    });
 
-// Add services to the container.
-
+// -----------------------------
+// Add Services & Controllers
+// -----------------------------
+builder.Services.AddScoped<IAuthService, AuthService>(); // your AuthService
 builder.Services.AddControllers();
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
+builder.Services.AddEndpointsApiExplorer();
 
+// -----------------------------
+// Build App
+// -----------------------------
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// -----------------------------
+// Middleware Pipeline
+// -----------------------------
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
+    app.MapScalarApiReference();
 }
 
 app.UseHttpsRedirection();
 
+app.UseAuthentication(); // Must come BEFORE Authorization
 app.UseAuthorization();
 
 app.MapControllers();
